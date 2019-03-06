@@ -22,6 +22,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/services/resources/mgmt/2018-05-01/resources"
 	"github.com/Azure/go-autorest/autorest"
 	"github.com/Azure/go-autorest/autorest/azure/auth"
+	"github.com/davecgh/go-spew/spew"
 )
 
 var (
@@ -57,15 +58,13 @@ func main() {
 				panic(err)
 			}
 			fmt.Println(len(resourceslist.Values()))
-			// fmt.Println(resourceslist.Values())
 			for _, resource := range resourceslist.Values() {
-				// fmt.Printf("%v", resource.Properties)
-				// fmt.Println(*resource.Name + "\t" + *resource.Type + "\t" + *resource.ID + "\t" + *resource.Location)
+				spew.Dump(resource)
 			}
-			result, err := vmClient.ListAllComplete(context.Background())
-			if err != nil {
-				panic(err)
-			}
+			// result, err := vmClient.ListAllComplete(context.Background())
+			// if err != nil {
+			// 	panic(err)
+			// }
 			groupslist, err := groupClient.List(context.Background(), "", nil)
 
 			if err != nil {
