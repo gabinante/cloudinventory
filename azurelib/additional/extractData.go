@@ -20,7 +20,8 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2018-06-01/compute"
 	"github.com/Azure/azure-sdk-for-go/services/network/mgmt/2018-10-01/network"
-	"github.com/Azure/azure-sdk-for-go/services/resources/mgmt/2018-02-01/resources"
+	"github.com/Azure/azure-sdk-for-go/services/postgresql/mgmt/2017-12-01-preview/postgresql"
+	"github.com/Azure/azure-sdk-for-go/services/resources/mgmt/2018-04-01/resources"
 	"github.com/Azure/go-autorest/autorest"
 	"github.com/Azure/go-autorest/autorest/azure/auth"
 	"github.com/pkg/errors"
@@ -42,8 +43,8 @@ type AzureSession struct {
 
 //NicDescriber - struct that holds data such as public, private IP and VM info from the NIC
 type NicDescriber struct {
-	PrivateIP string
 	NicName   string
+	PrivateIP string
 	PublicIP  string
 	Vmachine  string
 }
@@ -86,6 +87,28 @@ type nwIntResProp struct {
 
 type nwIntResVM struct {
 	ID string
+}
+
+// PGServer - struct to store data for each postgres server
+type PGServer struct {
+	ID         string
+	Properties PGServerProperties
+	Location   string
+	Name       string
+	Type       string
+}
+
+// PGServerProperties - struct to display "properties" of each PGServer
+type PGServerProperties struct {
+	AdministratorLogin       string
+	StorageProfile           PGStorageProfile
+	FullyQualifiedDomainName string
+	Version                  string
+}
+
+// PGStorageProfile - captures storage profile of the PG server
+type PGStorageProfile struct {
+	StorageMB int64
 }
 
 // AddItem - Helper function to add an item to the slice
@@ -194,48 +217,6 @@ func getNics(sess *AzureSession, rgName string) ([]NicDescriber, error) {
 
 		}
 
-		/*
-				json.Unmarshal(bs, &jsonRes)
-
-				PrivateipProps := jsonRes["properties"].(map[string]interface{})
-
-				for k, v := range PrivateipProps {
-
-					if k == "privateIPAddress" {
-						thisPrivateIP = v.(string)
-					} else if k == "publicIPAddress" {
-						PublicipProps := jsonRes["publicIPAddress"].(map[string]interface{})
-						fmt.Println("public IP properties ", PublicipProps)
-						for k1, v1 := range PublicipProps {
-							if k1 == "id" {
-								thisPublicIP = v1.(string)
-							}
-						}
-					}
-
-					item := NicDescriber{
-						PrivateIP: thisPrivateIP,
-						NicName:   eachNic,
-						PublicIP:  thisPublicIP,
-					}
-					NDList.AddItem(item)
-				}
-
-			}
-		*/
-
-		/*
-			ipConfigs := *nwList.Value().IPConfigurations
-			for _, eachipCfg := range ipConfigs {
-				item := NicDescriber{
-					PrivateIP: eachipCfg.PrivateIPAddress,
-					NicName:   eachNic,
-					//PublicIP:  eachipCfg.PublicIPAddress.IPAddress,
-				}
-				NDList.AddItem(item)
-			}
-		*/
-
 	}
 
 	return NDList.NicDL, err
@@ -273,6 +254,25 @@ func extractIPfromGenRes(genRes resources.GenericResource) (string, error) {
 
 }
 
+func extractVMfromGenRes(genRes resources.GenericResource) (string, error) {
+	var bs []byte
+	var err error
+
+	type GenResType struct {
+		ID   string
+		Name string
+	}
+
+	var GenRes1 GenResType
+
+	bs, err = genRes.MarshalJSON()
+	json.Unmarshal(bs, &GenRes1)
+	//fmt.Println(string(bs))
+
+	return GenRes1.Name, err
+
+}
+
 func main() {
 	sess, err := newSession()
 
@@ -286,7 +286,7 @@ func main() {
 		fmt.Println("unable to retrieve Resource Groups -- ", groupErr)
 	}
 
-	fmt.Println("list of Resource Groups -- ", groups)
+	//fmt.Println("list of Resource Groups -- ", groups)
 
 	for _, eachGrp := range groups {
 		nicdata, nicErr := getNics(sess, eachGrp)
@@ -295,11 +295,8 @@ func main() {
 		}
 
 		for _, vmInNic := range nicdata {
-			//fmt.Printf(" Private IP Address of NIC: %v is  - %v \n ", vmInNic.NicName, vmInNic.PrivateIP)
-			//fmt.Printf("Public IP Address of NIC: %v is - %v \n", vmInNic.NicName, vmInNic.PublicIP)
-			//fmt.Printf("VM ID of NIC: %v is - %v \n", vmInNic.NicName, vmInNic.Vmachine)
 
-			if vmInNic.PublicIP != "" {
+			if len(vmInNic.PublicIP) > 0 {
 				res, err := describeResource(sess, vmInNic.PublicIP)
 				if err != nil {
 					fmt.Println("cannot describe resource - ", vmInNic.PublicIP)
@@ -311,13 +308,65 @@ func main() {
 				}
 				//fmt.Println(res1)
 				vmInNic.PublicIP = res1
+				if len(res1) == 0 {
+					vmInNic.PublicIP = "Public IP not created"
+				}
+
+			} else if len(vmInNic.PublicIP) == 0 {
+				vmInNic.PublicIP = "Public IP not created"
 
 			}
-			fmt.Printf("VM ID of NIC: %v is - %v \n", vmInNic.NicName, vmInNic.Vmachine)
-			fmt.Printf(" Private IP Address of NIC: %v is  - %v \n ", vmInNic.NicName, vmInNic.PrivateIP)
-			fmt.Printf("Public IP Address of NIC: %v is - %v \n", vmInNic.NicName, vmInNic.PublicIP)
+			if len(vmInNic.Vmachine) > 0 {
+				res, err := describeResource(sess, vmInNic.Vmachine)
+				if err != nil {
+					fmt.Println("cannot describe resource - ", vmInNic.Vmachine)
+					fmt.Println(err)
+				}
+				res1, err1 := extractVMfromGenRes(res)
+				if err1 != nil {
+					fmt.Println("cannot extract VM details ", err1)
+				}
+				vmInNic.Vmachine = res1
+				if len(res1) == 0 {
+					vmInNic.Vmachine = "VM not assigned"
+				}
+
+			} else if len(vmInNic.Vmachine) == 0 {
+				vmInNic.Vmachine = "VM not assigned"
+			}
+			//fmt.Printf(" NIC: %v -- VM name:  %v \n", vmInNic.NicName, vmInNic.Vmachine)
+			//fmt.Printf(" NIC: %v -- Private IP: %v \n ", vmInNic.NicName, vmInNic.PrivateIP)
+			//fmt.Printf(" NIC: %v -- Public IP: %v \n", vmInNic.NicName, vmInNic.PublicIP)
+			fmt.Printf("%v \n", vmInNic)
 
 		}
 
 	}
+
+	postgresqlClient := postgresql.NewServersClient(sess.SubscriptionID)
+	postgresqlClient.Authorizer = sess.Authorizer
+
+	var pgServer PGServer
+
+	pgList, pgErr := postgresqlClient.List(context.Background())
+	if pgErr != nil {
+		fmt.Println(pgErr)
+	}
+
+	fmt.Println(" ========== POSTGRES DATA =========== ")
+	for _, eachpgServer := range *pgList.Value {
+		var bs []byte
+		var err error
+
+		bs, err = eachpgServer.MarshalJSON()
+		if err != nil {
+			fmt.Println("cant make sense of pg server list ", err)
+		}
+
+		json.Unmarshal(bs, &pgServer)
+
+		fmt.Printf("Name: %v -- ID: %v -- Version: %v -- size: %v \n\n", pgServer.Name, pgServer.ID, pgServer.Properties.Version, pgServer.Properties.StorageProfile.StorageMB)
+
+	}
+
 }
